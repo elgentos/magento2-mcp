@@ -28,6 +28,18 @@ function parseDateExpression(dateExpression) {
   
   // Normalize the date expression
   const normalizedExpression = dateExpression.toLowerCase().trim();
+  const monthsMatch = normalizedExpression.match(/^(?:last|past) (\d+) months$/);
+  if (monthsMatch) {
+    const months = Number(monthsMatch[1]);
+    if (months < 1 || months > 1200) {
+      throw new Error('The number of months must be between 1 and 1200');
+    }
+    return {
+      startDate: new Date(currentYear, currentMonth - months, 1),
+      endDate: endOfMonth(new Date(currentYear, currentMonth - 1, 1)),
+      description: `Last ${months} complete calendar months`
+    };
+  }
   
   // Handle relative date expressions
   switch (normalizedExpression) {
@@ -107,6 +119,9 @@ function parseDateExpression(dateExpression) {
           const endDate = parseISO(rangeParts[1]);
           
           if (isValid(startDate) && isValid(endDate)) {
+            if (isAfter(startDate, endDate)) {
+              throw new Error('Start date must not be after end date');
+            }
             return {
               startDate: startOfDay(startDate),
               endDate: endOfDay(endDate),
@@ -257,46 +272,27 @@ function normalizeCountry(country) {
 
 // Helper function to fetch all pages for a given search criteria
 async function fetchAllPages(endpoint, baseSearchCriteria) {
-  const pageSize = 100; // Or make this configurable if needed
-  let currentPage = 1;
-  let allItems = [];
-  let totalCount = 0;
-  
-  do {
-    // Build search criteria for the current page, ensuring baseSearchCriteria doesn't already have pagination
-    let currentPageSearchCriteria = baseSearchCriteria;
-    if (!currentPageSearchCriteria.includes('searchCriteria[pageSize]')) {
-      currentPageSearchCriteria += `&searchCriteria[pageSize]=${pageSize}`;
+  const criteria = new URLSearchParams(baseSearchCriteria);
+  if (!criteria.has('searchCriteria[pageSize]')) criteria.set('searchCriteria[pageSize]', '100');
+  const allItems = [];
+  const seen = new Set();
+  for (let currentPage = 1; ; currentPage++) {
+    criteria.set('searchCriteria[currentPage]', String(currentPage));
+    const response = await callMagentoApi(`${endpoint}?${criteria}`);
+    if (!Array.isArray(response.items) || !Number.isInteger(Number(response.total_count)) || Number(response.total_count) < 0) {
+      throw new Error(`Invalid paginated response from ${endpoint}`);
     }
-    if (!currentPageSearchCriteria.includes('searchCriteria[currentPage]')) {
-      currentPageSearchCriteria += `&searchCriteria[currentPage]=${currentPage}`;
-    } else {
-      // If currentPage is already there, replace it (less common case)
-      currentPageSearchCriteria = currentPageSearchCriteria.replace(/searchCriteria\[currentPage\]=\d+/, `searchCriteria[currentPage]=${currentPage}`);
+    for (const item of response.items) {
+      const id = item.entity_id ?? item.id;
+      if (id !== undefined) {
+        if (seen.has(String(id))) throw new Error(`Repeated record while paginating ${endpoint}; refusing incomplete totals`);
+        seen.add(String(id));
+      }
     }
-
-    // Make the API call for the current page
-    const responseData = await callMagentoApi(`${endpoint}?${currentPageSearchCriteria}`);
-    
-    if (responseData.items && Array.isArray(responseData.items)) {
-      allItems = allItems.concat(responseData.items);
-    }
-    
-    // Update total count (only needs to be set once)
-    if (currentPage === 1) {
-      totalCount = responseData.total_count || 0;
-    }
-    
-    // Check if we need to fetch more pages
-    if (totalCount <= allItems.length || !responseData.items || responseData.items.length < pageSize) {
-      break; // Exit loop if all items are fetched or last page had less than pageSize items
-    }
-    
-    currentPage++;
-    
-  } while (true); // Loop continues until break
-  
-  return allItems; // Return the aggregated list of items
+    allItems.push(...response.items);
+    if (allItems.length >= Number(response.total_count)) return allItems;
+    if (response.items.length === 0) throw new Error(`Incomplete paginated response from ${endpoint}`);
+  }
 }
 
 // Create an MCP server
@@ -847,96 +843,6 @@ server.tool(
   }
 );
 
-// Tool: Get revenue
-server.tool(
-  "get_revenue",
-  "Get the total revenue for a given date range",
-  {
-    date_range: z.string().describe("Date range expression (e.g., 'today', 'yesterday', 'last week', 'this month', 'YTD', or a specific date range like '2023-01-01 to 2023-01-31')"),
-    status: z.string().optional().describe("Filter by order status (e.g., 'processing', 'complete', 'pending')"),
-    include_tax: z.boolean().optional().describe("Whether to include tax in the revenue calculation (default: true)")
-  },
-  async ({ date_range, status, include_tax = true }) => {
-    try {
-      // Parse the date range expression
-      const dateRange = parseDateExpression(date_range);
-      
-      // Build the search criteria for the date range
-      let searchCriteria = buildDateRangeFilter('created_at', dateRange.startDate, dateRange.endDate);
-      
-      // Add status filter if provided
-      if (status) {
-        searchCriteria += `&searchCriteria[filter_groups][2][filters][0][field]=status&` +
-                          `searchCriteria[filter_groups][2][filters][0][value]=${encodeURIComponent(status)}&` +
-                          `searchCriteria[filter_groups][2][filters][0][condition_type]=eq`;
-      }
-      
-      // Fetch all orders using the helper function
-      const allOrders = await fetchAllPages('/orders', searchCriteria);
-      
-      // Calculate total revenue
-      let totalRevenue = 0;
-      let totalTax = 0;
-      let orderCount = 0;
-      
-      if (allOrders && Array.isArray(allOrders)) {
-        orderCount = allOrders.length;
-        
-        allOrders.forEach(order => {
-          // Use grand_total which includes tax, shipping, etc.
-          totalRevenue += parseFloat(order.grand_total || 0);
-          
-          // Track tax separately
-          totalTax += parseFloat(order.tax_amount || 0);
-        });
-      }
-      
-      // Adjust revenue if tax should be excluded
-      const revenueWithoutTax = totalRevenue - totalTax;
-      const finalRevenue = include_tax ? totalRevenue : revenueWithoutTax;
-      
-      // Format the response
-      const result = {
-        query: {
-          date_range: dateRange.description,
-          status: status || 'All',
-          include_tax: include_tax,
-          period: {
-            start_date: format(dateRange.startDate, 'yyyy-MM-dd'),
-            end_date: format(dateRange.endDate, 'yyyy-MM-dd')
-          }
-        },
-        result: {
-          revenue: parseFloat(finalRevenue.toFixed(2)),
-          currency: 'USD', // This should be dynamically determined from the store configuration
-          order_count: orderCount,
-          average_order_value: orderCount > 0 ? parseFloat((finalRevenue / orderCount).toFixed(2)) : 0,
-          tax_amount: parseFloat(totalTax.toFixed(2))
-        }
-      };
-      
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify(result, null, 2)
-          }
-        ]
-      };
-    } catch (error) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Error fetching revenue: ${error.message}`
-          }
-        ],
-        isError: true
-      };
-    }
-  }
-);
-
 // Tool: Get order count
 server.tool(
   "get_order_count",
@@ -995,257 +901,6 @@ server.tool(
           {
             type: "text",
             text: `Error fetching order count: ${error.message}`
-          }
-        ],
-        isError: true
-      };
-    }
-  }
-);
-
-// Tool: Get product sales
-server.tool(
-  "get_product_sales",
-  "Get statistics about the quantity of products sold in a given date range",
-  {
-    date_range: z.string().describe("Date range expression (e.g., 'today', 'yesterday', 'last week', 'this month', 'YTD', or a specific date range like '2023-01-01 to 2023-01-31')"),
-    status: z.string().optional().describe("Filter by order status (e.g., 'processing', 'complete', 'pending')"),
-    country: z.string().optional().describe("Filter by country code (e.g., 'US', 'NL', 'GB') or country name (e.g., 'United States', 'The Netherlands', 'United Kingdom')")
-  },
-  async ({ date_range, status, country }) => {
-    try {
-      // Parse the date range expression
-      const dateRange = parseDateExpression(date_range);
-      
-      // Build the search criteria for the date range
-      let searchCriteria = buildDateRangeFilter('created_at', dateRange.startDate, dateRange.endDate);
-      
-      // Add status filter if provided
-      if (status) {
-        searchCriteria += `&searchCriteria[filter_groups][2][filters][0][field]=status&` +
-                          `searchCriteria[filter_groups][2][filters][0][value]=${encodeURIComponent(status)}&` +
-                          `searchCriteria[filter_groups][2][filters][0][condition_type]=eq`;
-      }
-      
-      // Fetch all orders using the helper function
-      const allOrders = await fetchAllPages('/orders', searchCriteria);
-      
-      // Filter orders by country if provided
-      let filteredOrders = allOrders;
-      if (country) {
-        // Normalize country input
-        const normalizedCountry = normalizeCountry(country);
-        
-        // Filter orders by country
-        filteredOrders = filteredOrders.filter(order => {
-          // Check billing address country
-          const billingCountry = order.billing_address?.country_id;
-          
-          // Check shipping address country
-          const shippingCountry = order.extension_attributes?.shipping_assignments?.[0]?.shipping?.address?.country_id;
-          
-          // Match if either billing or shipping country matches
-          return normalizedCountry.includes(billingCountry) || normalizedCountry.includes(shippingCountry);
-        });
-      }
-      
-      // Calculate statistics
-      let totalOrders = filteredOrders.length;
-      let totalOrderItems = 0;
-      let totalProductQuantity = 0;
-      let totalRevenue = 0;
-      let productCounts = {};
-      
-      // Process each order
-      filteredOrders.forEach(order => {
-        // Add to total revenue
-        totalRevenue += parseFloat(order.grand_total || 0);
-        
-        // Process order items
-        if (order.items && Array.isArray(order.items)) {
-          // Count total order items (order lines)
-          totalOrderItems += order.items.length;
-          
-          // Process each item
-          order.items.forEach(item => {
-            // Add to total product quantity
-            const quantity = parseFloat(item.qty_ordered || 0);
-            totalProductQuantity += quantity;
-            
-            // Track product counts by SKU
-            const sku = item.sku;
-            if (sku) {
-              if (!productCounts[sku]) {
-                productCounts[sku] = {
-                  name: item.name,
-                  quantity: 0,
-                  revenue: 0
-                };
-              }
-              productCounts[sku].quantity += quantity;
-              productCounts[sku].revenue += parseFloat(item.row_total || 0);
-            }
-          });
-        }
-      });
-      
-      // Convert product counts to array and sort by quantity
-      const topProducts = Object.entries(productCounts)
-        .map(([sku, data]) => ({
-          sku,
-          name: data.name,
-          quantity: data.quantity,
-          revenue: data.revenue
-        }))
-        .sort((a, b) => b.quantity - a.quantity)
-        .slice(0, 10); // Top 10 products
-      
-      // Format the response
-      const result = {
-        query: {
-          date_range: dateRange.description,
-          status: status || 'All',
-          country: country || 'All',
-          period: {
-            start_date: format(dateRange.startDate, 'yyyy-MM-dd'),
-            end_date: format(dateRange.endDate, 'yyyy-MM-dd')
-          }
-        },
-        result: {
-          total_orders: totalOrders,
-          total_order_items: totalOrderItems,
-          total_product_quantity: totalProductQuantity,
-          average_products_per_order: totalOrders > 0 ? parseFloat((totalProductQuantity / totalOrders).toFixed(2)) : 0,
-          total_revenue: parseFloat(totalRevenue.toFixed(2)),
-          average_revenue_per_product: totalProductQuantity > 0 ? parseFloat((totalRevenue / totalProductQuantity).toFixed(2)) : 0,
-          top_products: topProducts
-        }
-      };
-      
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify(result, null, 2)
-          }
-        ]
-      };
-    } catch (error) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Error fetching product sales: ${error.message}`
-          }
-        ],
-        isError: true
-      };
-    }
-  }
-);
-
-// Tool: Get revenue by country
-server.tool(
-  "get_revenue_by_country",
-  "Get revenue filtered by country for a given date range",
-  {
-    date_range: z.string().describe("Date range expression (e.g., 'today', 'yesterday', 'last week', 'this month', 'YTD', or a specific date range like '2023-01-01 to 2023-01-31')"),
-    country: z.string().describe("Country code (e.g., 'US', 'NL', 'GB') or country name (e.g., 'United States', 'The Netherlands', 'United Kingdom')"),
-    status: z.string().optional().describe("Filter by order status (e.g., 'processing', 'complete', 'pending')"),
-    include_tax: z.boolean().optional().describe("Whether to include tax in the revenue calculation (default: true)")
-  },
-  async ({ date_range, country, status, include_tax = true }) => {
-    try {
-      // Parse the date range expression
-      const dateRange = parseDateExpression(date_range);
-      
-      // Normalize country input (handle both country codes and names)
-      const normalizedCountry = normalizeCountry(country);
-      
-      // Build the search criteria for the date range
-      let searchCriteria = buildDateRangeFilter('created_at', dateRange.startDate, dateRange.endDate);
-      
-      // Add status filter if provided
-      if (status) {
-        searchCriteria += `&searchCriteria[filter_groups][2][filters][0][field]=status&` +
-                          `searchCriteria[filter_groups][2][filters][0][value]=${encodeURIComponent(status)}&` +
-                          `searchCriteria[filter_groups][2][filters][0][condition_type]=eq`;
-      }
-      
-      // Fetch all orders using the helper function
-      const allOrders = await fetchAllPages('/orders', searchCriteria);
-      
-      // Filter orders by country and calculate revenue
-      let totalRevenue = 0;
-      let totalTax = 0;
-      let orderCount = 0;
-      let filteredOrders = [];
-      
-      if (allOrders && Array.isArray(allOrders)) {
-        // Filter orders by country
-        filteredOrders = allOrders.filter(order => {
-          // Check billing address country
-          const billingCountry = order.billing_address?.country_id;
-          
-          // Check shipping address country
-          const shippingCountry = order.extension_attributes?.shipping_assignments?.[0]?.shipping?.address?.country_id;
-          
-          // Match if either billing or shipping country matches
-          return normalizedCountry.includes(billingCountry) || normalizedCountry.includes(shippingCountry);
-        });
-        
-        orderCount = filteredOrders.length;
-        
-        // Calculate revenue for filtered orders
-        filteredOrders.forEach(order => {
-          // Use grand_total which includes tax, shipping, etc.
-          totalRevenue += parseFloat(order.grand_total || 0);
-          
-          // Track tax separately
-          totalTax += parseFloat(order.tax_amount || 0);
-        });
-      }
-      
-      // Adjust revenue if tax should be excluded
-      const revenueWithoutTax = totalRevenue - totalTax;
-      const finalRevenue = include_tax ? totalRevenue : revenueWithoutTax;
-      
-      // Format the response
-      const result = {
-        query: {
-          date_range: dateRange.description,
-          country: country,
-          normalized_country: normalizedCountry.join(', '),
-          status: status || 'All',
-          include_tax: include_tax,
-          period: {
-            start_date: format(dateRange.startDate, 'yyyy-MM-dd'),
-            end_date: format(dateRange.endDate, 'yyyy-MM-dd')
-          }
-        },
-        result: {
-          revenue: parseFloat(finalRevenue.toFixed(2)),
-          currency: 'USD', // This should be dynamically determined from the store configuration
-          order_count: orderCount,
-          average_order_value: orderCount > 0 ? parseFloat((finalRevenue / orderCount).toFixed(2)) : 0,
-          tax_amount: parseFloat(totalTax.toFixed(2))
-        }
-      };
-      
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify(result, null, 2)
-          }
-        ]
-      };
-    } catch (error) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Error fetching revenue by country: ${error.message}`
           }
         ],
         isError: true
@@ -1382,6 +1037,10 @@ server.tool(
     }
   }
 );
+
+require('./sales-tools').registerSalesTools(server, {
+  callMagentoApi, fetchAllPages, parseDateExpression, buildDateRangeFilter, normalizeCountry
+});
 
 // Start the MCP server with stdio transport
 async function main() {
