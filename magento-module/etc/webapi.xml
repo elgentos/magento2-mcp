@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<routes xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Webapi:etc/webapi.xsd">
+    <route url="/V1/mcp-merchant/search-terms" method="GET">
+        <service class="Elgentos\McpMerchant\Api\MerchantReportsInterface" method="getSearchTerms"/>
+        <resources><resource ref="Elgentos_McpMerchant::search_terms"/></resources>
+    </route>
+    <route url="/V1/mcp-merchant/reviews" method="GET">
+        <service class="Elgentos\McpMerchant\Api\MerchantReportsInterface" method="getProductReviews"/>
+        <resources><resource ref="Elgentos_McpMerchant::reviews"/></resources>
+    </route>
+    <route url="/V1/mcp-merchant/prices" method="GET">
+        <service class="Elgentos\McpMerchant\Api\MerchantReportsInterface" method="getProductPrices"/>
+        <resources><resource ref="Elgentos_McpMerchant::prices"/></resources>
+    </route>
+</routes>

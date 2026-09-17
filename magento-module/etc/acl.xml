@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:Acl/etc/acl.xsd">
+    <acl><resources><resource id="Magento_Backend::admin">
+        <resource id="Elgentos_McpMerchant::merchant" title="MCP Merchant Reports" sortOrder="100">
+            <resource id="Elgentos_McpMerchant::search_terms" title="Read Storefront Search Terms"/>
+            <resource id="Elgentos_McpMerchant::reviews" title="Read Product Reviews (All Statuses)"/>
+            <resource id="Elgentos_McpMerchant::prices" title="Read Customer Group Prices"/>
+        </resource>
+    </resource></resources></acl>
+</config>

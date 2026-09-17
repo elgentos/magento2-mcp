@@ -4,7 +4,8 @@
   "description": "",
   "main": "claude-magento-client.js",
   "scripts": {
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "test:php": "php test/merchant-module.test.php"
   },
   "keywords": [],
   "author": "",

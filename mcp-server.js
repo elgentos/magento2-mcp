@@ -28,6 +28,12 @@ function parseDateExpression(dateExpression) {
   
   // Normalize the date expression
   const normalizedExpression = dateExpression.toLowerCase().trim();
+  const daysMatch = normalizedExpression.match(/^(?:last|past) (\d+) days$/);
+  if (daysMatch) {
+    const days = Number(daysMatch[1]);
+    if (days < 1 || days > 36500) throw new Error('The number of days must be between 1 and 36500');
+    return { startDate: startOfDay(subDays(now, days)), endDate: endOfDay(subDays(now, 1)), description: `Last ${days} complete calendar days` };
+  }
   const monthsMatch = normalizedExpression.match(/^(?:last|past) (\d+) months$/);
   if (monthsMatch) {
     const months = Number(monthsMatch[1]);
@@ -1038,9 +1044,18 @@ server.tool(
   }
 );
 
-require('./sales-tools').registerSalesTools(server, {
+const merchantContext = require('./merchant/common').createContext(server, {
   callMagentoApi, fetchAllPages, parseDateExpression, buildDateRangeFilter, normalizeCountry
 });
+const refundService = require('./merchant/refunds').createRefundService(merchantContext);
+require('./sales-tools').registerSalesTools(server, {
+  ...merchantContext, refundService, orderDocuments: require('./merchant/orders').createOrderDocuments(merchantContext)
+});
+require('./merchant/refunds').registerRefundTools(merchantContext, refundService);
+require('./merchant/carts-customers').registerCartCustomerTools(merchantContext);
+require('./merchant/orders').registerOrderTools(merchantContext);
+require('./merchant/inventory').registerInventoryTools(merchantContext);
+require('./merchant/marketing-content').registerMarketingContentTools(merchantContext);
 
 // Start the MCP server with stdio transport
 async function main() {

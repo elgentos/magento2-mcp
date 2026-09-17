@@ -71,7 +71,13 @@ test('sales tools over MCP stdio and a mock Magento HTTP API', async t => {
       res.statusCode = order ? 200 : 404;
       return res.end(JSON.stringify(order || { message: 'Not found' }));
     }
-    let rows = url.pathname.endsWith('/orders') ? orders : url.pathname.endsWith('/products') ? catalog : categoryData;
+    const endpoints = { '/rest/V1/orders': orders, '/rest/V1/products': catalog, '/rest/V1/categories/list': categoryData,
+      '/rest/V1/invoices': [], '/rest/V1/shipments': [], '/rest/V1/creditmemos': [] };
+    let rows = endpoints[url.pathname];
+    if (!rows) {
+      res.statusCode = 404;
+      return res.end(JSON.stringify({ message: `Unexpected endpoint ${url.pathname}` }));
+    }
     for (const [key, field] of url.searchParams) {
       if (!key.endsWith('[field]') || !key.includes('[filter_groups]')) continue;
       const prefix = key.slice(0, -7);

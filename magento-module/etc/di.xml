@@ -1,0 +1,7 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:ObjectManager/etc/config.xsd">
+    <preference for="Elgentos\McpMerchant\Api\MerchantReportsInterface" type="Elgentos\McpMerchant\Model\MerchantReports"/>
+    <preference for="Elgentos\McpMerchant\Api\Data\SearchTermsReportInterface" type="Elgentos\McpMerchant\Model\Report"/>
+    <preference for="Elgentos\McpMerchant\Api\Data\ProductReviewsReportInterface" type="Elgentos\McpMerchant\Model\Report"/>
+    <preference for="Elgentos\McpMerchant\Api\Data\ProductPricesReportInterface" type="Elgentos\McpMerchant\Model\Report"/>
+</config>

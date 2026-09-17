@@ -1,6 +1,8 @@
 # Magento 2 MCP Server
 
-This is a Model Context Protocol (MCP) server that connects to a Magento 2 REST API, allowing Claude and other MCP clients to query product information from a Magento store.
+This is a Model Context Protocol (MCP) server that connects to Magento 2, allowing Claude and other MCP clients to analyze sales, customers, inventory and marketing, and manage product attributes and CMS content.
+
+The [merchant tools guide](docs/merchant-tools.md) documents the 24 tools added from priorities 1 and 2 of the [Magento MCP comparison](docs/mcp-merchant-comparison.nl.md), their filters and calculation definitions. Contextual prices, search terms and reviews require the bundled [Magento module](magento-module/README.md).
 
 ## Features
 
@@ -16,6 +18,16 @@ This is a Model Context Protocol (MCP) server that connects to a Magento 2 REST 
 
 ### Customer Features
 - Get all ordered products for a customer by email address
+- Search customer profiles, addresses and groups
+- Analyze top, new, returning and inactive buyers using earlier order history
+- Inspect active and abandoned carts with items, totals and an inactivity threshold
+
+### Merchant Operations
+- Read MSI salable stock and source quantities; find low-stock products and estimate stock duration
+- Read promotions, coupons and order-based coupon performance
+- Read contextual customer-group prices and configured quantity tiers
+- Search CMS pages/blocks and update page content and metadata
+- Analyze storefront search terms without results and read product reviews
 
 ### Order and Revenue Features
 - Get order count for specific date ranges
@@ -26,6 +38,8 @@ This is a Model Context Protocol (MCP) server that connects to a Magento 2 REST 
 - List orders with their order lines and retrieve individual orders
 - Analyze sales by category, with monthly revenue, quantities and category contribution per order
 - Get monthly revenue, order count and average order value in one tool call
+- Analyze credit memos and optionally deduct refunds by refund date or original order date
+- Inspect payments, invoices, shipments, tracking and order status history
 - Support for relative date expressions like "today", "yesterday", "last week", "this month", "last 18 months", "YTD"
 - Support for country filtering using both country codes and country names
 
@@ -99,6 +113,18 @@ The server exposes the following tools:
 
 ### Customer Tools
 - `get_customer_ordered_products_by_email`: Get all ordered products for a customer by email address
+- `get_customers`, `get_customer`, `get_customer_groups`: Search/read customer profiles and groups
+- `get_customer_analytics`: Top buyers, new/returning buyers, lifetime spend within scope and inactivity
+- `get_abandoned_carts`, `get_cart`: Cart contents, totals and inactivity-based abandoned cart reports
+
+### Inventory, Marketing and Content Tools
+- `get_inventory`, `get_low_stock_products`, `get_inventory_risk`: Availability and sales-based stock estimates
+- `get_sales_rules`, `get_coupons`, `get_coupon_performance`: Promotion configuration, usage and associated order metrics
+- `get_product_prices`, `get_product_tier_prices`: Customer-group catalog prices and quantity tiers
+- `search_cms_pages`, `get_cms_page`, `update_cms_page`, `get_cms_blocks`: CMS content and page updates
+- `get_search_terms`, `get_product_reviews`: Storefront search terms and reviews
+
+See [parameters, examples and required permissions](docs/merchant-tools.md) for all of these tools.
 
 ### Order and Revenue Tools
 - `get_order_count`: Get the number of orders for a given date range
@@ -108,6 +134,8 @@ The server exposes the following tools:
 - `get_order`: Get one order with order lines by internal `order_id` or displayed `increment_id`
 - `get_product_sales`: Get all sold products with quantities, revenue and distinct order counts, using pagination
 - `get_category_sales`: Get complete category sales and category contribution per order, optionally grouped by month
+- `get_credit_memos`, `get_refund_report`: Financial refunds and product refund amounts
+- `get_order_tracking`, `get_invoices`: Shipments, tracking numbers and invoice details
 
 ### Sales analysis parameters
 
@@ -125,9 +153,9 @@ Additional parameters:
 
 | Tool | Parameters |
 | --- | --- |
-| Revenue tools | `group_by`: `none` (default) or `month`; `include_tax`: defaults to `true`. |
+| Revenue tools | `group_by`: `none` (default) or `month`; `include_tax`: defaults to `true`; `subtract_refunds`: defaults to `false`; `refund_date_basis`: `refund_date` (default) or `order_date`. See [refund definitions](docs/merchant-tools.md#refunds-and-net-revenue). |
 | `get_orders` | `page_size`, `current_page`, `include_items` (default `true`). |
-| `get_order` | Exactly one of `order_id` (positive integer) or `increment_id` (string, preserving leading zeros). |
+| `get_order` | Exactly one of `order_id` (positive integer) or `increment_id` (string, preserving leading zeros); `include_documents` (default `true`) includes invoices, shipments and credit memos and requires their read permissions. |
 | `get_categories` | `page_size`, `current_page`. |
 | `get_product_sales` | `sku` (exact ordered SKU), `category_id`, `include_subcategories` (default `true`), `include_tax` (default `false`), `sort_by` (`quantity`, `revenue` or `sku`), `sort_direction` (`desc` or `asc`), `page_size`, `current_page`. Default sort: quantity descending. |
 | `get_category_sales` | `sku`, `category_id`, `include_subcategories` (default `true`), `include_tax` (default `false`), `category_level` (default `2`, main categories below the store root), `group_by` (`none` or `month`), `page_size`, `current_page`. Categories are sorted by revenue descending. |
@@ -177,7 +205,7 @@ Retrieve more than the top ten products or inspect the underlying orders:
 
 ### Calculation definitions
 
-- Reports use order creation dates and ordered amounts/quantities. They are not invoice or net-refund reports: refunds and canceled quantities are not subtracted. Use `status` to select the order population. Order detail tools expose invoiced, shipped, canceled and refunded quantities where available.
+- Sales reports use order creation dates and ordered amounts/quantities. By default, refunds and canceled quantities are not subtracted. Revenue tools can deduct credit memos with `subtract_refunds: true`; product/category sales remain ordered amounts. Use `status` to select the order population. Order detail tools expose invoiced, shipped, canceled and refunded quantities where available.
 - Order revenue/AOV uses `grand_total`, including shipping and discounts. `include_tax: false` subtracts `tax_amount`. Currency comes from `order_currency_code`; empty results have `currency: null`.
 - Product/category revenue uses `row_total - discount_amount + discount_tax_compensation_amount`, plus `tax_amount` when requested. Shipping and order-level adjustments are not allocated to products. Quantities can be fractional. Free products are retained.
 - Configurable and fixed-price bundle parent rows are counted once. Dynamic-price bundles with value on their child rows use those child rows and the bundle parent's categories. Raw order details retain both parent and child rows with `parent_item_id` for inspection.
@@ -188,7 +216,7 @@ Retrieve more than the top ten products or inspect the underlying orders:
 
 Relative date expressions use the server's calendar. Date filters and monthly grouping use Magento `created_at` timestamps without a store-timezone conversion; run with `TZ=UTC` for UTC calendar boundaries.
 
-These tools use standard Magento `/orders`, `/orders/{id}`, `/products` and `/categories/list` endpoints. The integration token needs read access to orders and, for category reports, catalog products and categories. No Magento extension is needed. Each aggregate request reads all matching order pages; category reports additionally fetch the relevant products in batches and the category list. Large periods can therefore take longer than one MCP request timeout; configure your client's timeout accordingly. Repeated or incomplete API pages produce an error instead of partial totals.
+The sales tools use standard Magento `/orders`, `/orders/{id}`, `/products` and `/categories/list` endpoints; refunds and order documents use `/creditmemos`, `/invoices` and `/shipments`. The integration token needs read access to the requested data. No Magento extension is needed for these sales tools. Each aggregate request reads all matching order pages; category reports additionally fetch the relevant products in batches and the category list. Large periods can therefore take longer than one MCP request timeout; configure your client's timeout accordingly. Repeated or incomplete API pages produce an error instead of partial totals.
 
 After updating the server, restart the MCP connection and refresh the client's tool list so the new tools and parameters become available.
 
@@ -237,6 +265,8 @@ npm test
 ```
 
 Tests connect a real MCP client over stdio to the server and use a local mock Magento HTTP API. No store credentials or live orders are needed. They cover pagination beyond 100 products, monthly AOV and empty months, filters, currency handling, discounts/tax, configurable and bundle products, category allocation and API failures. `test-mcp-server.js` remains an optional smoke test against a configured Magento instance.
+
+Merchant tests also cover cart inactivity, refund date bases, customer histories, stock reservations, coupon metrics, contextual pricing, module errors and CMS updates preserving existing settings. Run `npm run test:php` for standalone companion-module tests (PHP 8.1+ with SimpleXML); see its [installation guide](magento-module/README.md) for deployment validation.
 
 ### SSL Certificate Verification
 

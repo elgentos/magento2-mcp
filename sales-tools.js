@@ -123,8 +123,17 @@ function categoryIds(product) {
 function orderDetails(order, includeItems = true) {
   const fields = ['entity_id', 'increment_id', 'created_at', 'status', 'store_id', 'order_currency_code',
     'grand_total', 'subtotal', 'tax_amount', 'discount_amount', 'shipping_amount', 'shipping_tax_amount',
-    'total_paid', 'total_refunded', 'total_canceled'];
+    'total_paid', 'total_refunded', 'total_canceled', 'total_due', 'state', 'customer_id', 'customer_email',
+    'customer_firstname', 'customer_lastname', 'customer_group_id', 'coupon_code', 'shipping_description',
+    'billing_address', 'status_histories'];
   const result = Object.fromEntries(fields.filter(field => order[field] !== undefined).map(field => [field, order[field]]));
+  if (order.payment) {
+    const paymentFields = ['method', 'amount_ordered', 'amount_paid', 'amount_refunded', 'last_trans_id'];
+    result.payment = Object.fromEntries(paymentFields.filter(field => order.payment[field] !== undefined).map(field => [field, order.payment[field]]));
+  }
+  if (order.extension_attributes?.shipping_assignments) {
+    result.shipping = order.extension_attributes.shipping_assignments.map(assignment => assignment.shipping);
+  }
   if (includeItems) {
     const itemFields = ['item_id', 'parent_item_id', 'product_id', 'product_type', 'sku', 'name', 'qty_ordered',
       'qty_invoiced', 'qty_shipped', 'qty_canceled', 'qty_refunded', 'price', 'price_incl_tax', 'row_total',
@@ -136,7 +145,7 @@ function orderDetails(order, includeItems = true) {
   return result;
 }
 
-function registerSalesTools(server, { callMagentoApi, fetchAllPages, parseDateExpression, buildDateRangeFilter, normalizeCountry }) {
+function registerSalesTools(server, { callMagentoApi, fetchAllPages, parseDateExpression, buildDateRangeFilter, normalizeCountry, refundService, orderDocuments }) {
   function register(name, description, schema, handler) {
     server.tool(name, description, schema, async args => {
       try { return json(await handler(args)); }
@@ -224,23 +233,33 @@ function registerSalesTools(server, { callMagentoApi, fetchAllPages, parseDateEx
   async function revenue(args) {
     const { dateRange, criteria } = orderQuery(args);
     const orders = await loadOrders(args, criteria);
-    const result = revenueSummary(orders, args.include_tax);
+    let result = revenueSummary(orders, args.include_tax);
+    const refunds = args.subtract_refunds
+      ? await refundService.select({ ...args, date_basis: args.refund_date_basis }, orders) : [];
+    if (args.subtract_refunds) {
+      result.currency = getCurrency([...orders, ...refunds.map(row => row.order)]);
+      result = refundService.apply(result, refunds, args);
+    }
     if (args.group_by === 'month') {
-      result.periods = monthKeys(dateRange).map(month => ({
-        month, ...revenueSummary(orders.filter(order => order.created_at.slice(0, 7) === month), args.include_tax),
-        currency: result.currency
-      }));
+      result.periods = monthKeys(dateRange).map(month => {
+        let summary = revenueSummary(orders.filter(order => order.created_at.slice(0, 7) === month), args.include_tax);
+        if (args.subtract_refunds) summary = refundService.apply(summary, refunds.filter(row =>
+          (args.refund_date_basis === 'order_date' ? row.order.created_at : row.memo.created_at).slice(0, 7) === month), args);
+        return { month, ...summary, currency: result.currency };
+      });
     }
     return {
       query: queryMetadata(args, dateRange),
-      calculation: 'Order grand totals after discounts, including shipping; tax follows include_tax. Based on order creation dates and ordered amounts, not invoices or net of refunds. All statuses included unless status is specified.',
+      calculation: 'Order grand totals after discounts, including shipping; tax follows include_tax. All statuses included unless status is specified. With subtract_refunds, revenue/net_revenue subtract state=2 credit memos by the chosen refund_date_basis. average_order_value always describes gross baskets; net_average_order_value is only defined for an order_date cohort. Order-date refunds are all recorded refunds to date, including refunds issued after the order period.',
       result
     };
   }
 
   const revenueSchema = {
     ...commonSchema, ...groupingSchema,
-    include_tax: z.boolean().default(true).describe('Include tax (default true)')
+    include_tax: z.boolean().default(true).describe('Include tax (default true)'),
+    subtract_refunds: z.boolean().default(false).describe('Subtract actual credit memo amounts; gross basket AOV remains available separately'),
+    refund_date_basis: z.enum(['refund_date', 'order_date']).default('refund_date').describe('Refunds issued in the period, or all recorded refunds to the selected order cohort')
   };
   register('get_revenue', 'Get revenue, order count and average order value (AOV). Use group_by=month and date_range="last 18 months" for a complete monthly trend in one call.', revenueSchema, revenue);
   register('get_revenue_by_country', 'Get revenue and average order value filtered by billing or shipping country, optionally grouped by month.', {
@@ -270,7 +289,8 @@ function registerSalesTools(server, { callMagentoApi, fetchAllPages, parseDateEx
 
   register('get_order', 'Get one order and all its order lines by internal order ID or displayed order number (increment_id).', {
     order_id: z.number().int().positive().optional().describe('Internal Magento order entity ID; specify this OR increment_id'),
-    increment_id: z.string().min(1).optional().describe('Displayed order number, preserving leading zeros; specify this OR order_id')
+    increment_id: z.string().min(1).optional().describe('Displayed order number, preserving leading zeros; specify this OR order_id'),
+    include_documents: z.boolean().default(true).describe('Include invoices, shipments/tracking and credit memos; requires read access to these documents')
   }, async args => {
     if ((args.order_id !== undefined) === (args.increment_id !== undefined)) throw new Error('Specify exactly one of order_id or increment_id');
     let order;
@@ -281,7 +301,7 @@ function registerSalesTools(server, { callMagentoApi, fetchAllPages, parseDateEx
       order = matches[0];
     }
     if (!order?.entity_id) throw new Error('Order not found');
-    return { result: orderDetails(order) };
+    return { result: { ...orderDetails(order), ...(args.include_documents ? await orderDocuments(order.entity_id) : {}) } };
   });
 
   register('get_categories', 'List catalog categories, with IDs, names, parent IDs and levels for sales filters. Follow next_page for the complete list.', paginationSchema, async args => {
@@ -394,4 +414,8 @@ function registerSalesTools(server, { callMagentoApi, fetchAllPages, parseDateEx
   });
 }
 
-module.exports = { registerSalesTools };
+module.exports = {
+  registerSalesTools, commonSchema, paginationSchema, groupingSchema, productFilterSchema,
+  filter, orderSort, pagination, page, number, round, quantity, json, getCurrency,
+  revenueSummary, monthKeys, salesLines, lineRevenue, categoryIds, orderDetails
+};
