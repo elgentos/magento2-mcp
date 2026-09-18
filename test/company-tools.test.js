@@ -78,6 +78,7 @@ function createB2bRoute(data) {
       data.companies.push(created);
       return send(created);
     }
+    if (endpoint === '/store/storeConfigs') return send(data.storeConfigs);
     let match = endpoint.match(/^\/company\/customer\/(\d+)$/);
     if (match) {
       const assignment = data.companyCustomers.find(row => row.customer_id === Number(match[1]));
@@ -131,6 +132,7 @@ function createB2bRoute(data) {
 function createData() {
   return {
     nextId: 3, nextAssignmentId: 8, products: ['SKU-A'], companyPrices: new Map(),
+    storeConfigs: [{ id: 1, website_id: 1, base_currency_code: 'EUR' }],
     companies: [company(1, 'Acme', { auto_assign_config: autoAssign }), company(2, 'Bricks', { status: 'pending', city: 'Utrecht', country_id: 'DE' })],
     companyCustomers: [{ entity_id: 7, company_id: 1, customer_id: 42, role_id: 1 }]
   };
@@ -274,6 +276,7 @@ test('company tools against a Magento instance with the B2B suite', async t => {
     assert.ok(!calls.some(entry => entry.endpoint.startsWith('/company-pricing')));
     const result = await call('set_company_prices', { sku: 'SKU-A', prices, confirm: true });
     assert.deepEqual({ tiers: result.result.tier_count, replaced: result.result.replaced_all_tiers }, { tiers: 2, replaced: true });
+    assert.equal(result.result.currency, 'EUR');
     assert.deepEqual(data.companyPrices.get('SKU-A'), prices);
     const sent = calls.find(entry => entry.endpoint.startsWith('/company-pricing')).body;
     assert.equal(sent.sku, 'SKU-A');

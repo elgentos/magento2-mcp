@@ -305,7 +305,62 @@ async function fetchAllPages(endpoint, baseSearchCriteria) {
 const server = new McpServer({
   name: "magento-mcp-server",
   version: "1.0.0"
+}, {
+  instructions: [
+    'Magento reports money as plain numbers. The numbers are never US dollars by default.',
+    'Every response that carries money also reports an ISO currency code, for example EUR, in a currency field.',
+    'Show each amount with the reported code and never replace it with another currency or symbol.',
+    'A currency of null means the selected scope holds more than one currency, or the store configuration could not be read.',
+    'The currency_note field then says why. Report that instead of assuming a currency.',
+    'Amounts in different currencies are never added together and never converted.'
+  ].join(' ')
 });
+
+// Magento returns monetary values as plain numbers, so the ISO currency code
+// travels with every payload that carries money. Store configuration changes
+// rarely, so it is read once per process.
+let storeConfigRequest = null;
+function storeConfigs() {
+  if (!storeConfigRequest) {
+    storeConfigRequest = callMagentoApi('/store/storeConfigs').catch(error => {
+      storeConfigRequest = null;
+      throw error;
+    });
+  }
+  return storeConfigRequest;
+}
+
+// Catalog prices are held in the base currency of a store scope. Without a
+// scope the currency is only unambiguous on a single currency instance.
+async function baseCurrency(scope = {}) {
+  let configs;
+  try {
+    configs = await storeConfigs();
+  } catch (error) {
+    return { currency: null, currency_note: `The store base currency could not be read: ${error.message}` };
+  }
+  if (!Array.isArray(configs)) {
+    return { currency: null, currency_note: 'The store configuration response did not list stores, so the base currency is unknown.' };
+  }
+  const selected = configs.filter(config =>
+    (scope.store_id === undefined || Number(config.id) === Number(scope.store_id)) &&
+    (scope.website_id === undefined || Number(config.website_id) === Number(scope.website_id)));
+  if (selected.length === 0) {
+    return { currency: null, currency_note: 'The requested store scope is not configured on this instance, so the base currency is unknown.' };
+  }
+  const codes = [...new Set(selected.map(config => config.base_currency_code).filter(Boolean))];
+  if (codes.length === 1) return { currency: codes[0] };
+  if (codes.length === 0) {
+    return { currency: null, currency_note: 'This instance reports no base currency for the selected stores.' };
+  }
+  return { currency: null, currency_note: `The stores on this instance use several base currencies (${codes.join(', ')}). Ask for one store or website scope before you show or add up amounts.` };
+}
+
+// Name the currency of a payload that contains prices.
+async function withCurrency(payload, scope) {
+  if (!payload || typeof payload !== 'object') return payload;
+  return { ...payload, ...await baseCurrency(scope) };
+}
 
 // Helper function to make authenticated requests to Magento 2 API
 async function callMagentoApi(endpoint, method = 'GET', data = null) {
@@ -391,7 +446,7 @@ server.tool(
   async ({ sku }) => {
     try {
       const productData = await callMagentoApi(`/products/${sku}`);
-      const formattedProduct = formatProduct(productData);
+      const formattedProduct = await withCurrency(formatProduct(productData));
       
       return {
         content: [
@@ -434,7 +489,7 @@ server.tool(
                             `searchCriteria[currentPage]=${current_page}`;
       
       const productData = await callMagentoApi(`/products?${searchCriteria}`);
-      const formattedResults = formatSearchResults(productData);
+      const formattedResults = await withCurrency(formatSearchResults(productData));
       
       return {
         content: [
@@ -566,7 +621,7 @@ server.tool(
         content: [
           {
             type: "text",
-            text: JSON.stringify(products, null, 2)
+            text: JSON.stringify({ sku, ...await baseCurrency(), related_products: products }, null, 2)
           }
         ]
       };
@@ -647,6 +702,7 @@ server.tool(
           attributes.custom_attributes[attr.attribute_code] = attr.value;
         });
       }
+      Object.assign(attributes, await baseCurrency());
       
       return {
         content: [
@@ -702,7 +758,7 @@ server.tool(
       
       // Now get the full product details using the SKU
       const productData = await callMagentoApi(`/products/${sku}`);
-      const formattedProduct = formatProduct(productData);
+      const formattedProduct = await withCurrency(formatProduct(productData));
       
       return {
         content: [
@@ -751,7 +807,7 @@ server.tool(
                             `searchCriteria[sortOrders][0][direction]=${encodeURIComponent(sort_direction)}`;
       
       const productData = await callMagentoApi(`/products?${searchCriteria}`);
-      const formattedResults = formatSearchResults(productData);
+      const formattedResults = await withCurrency(formatSearchResults(productData));
       
       return {
         content: [
@@ -831,7 +887,7 @@ server.tool(
         content: [
           {
             type: "text",
-            text: `Successfully updated '${attribute_code}' for product with SKU '${sku}'. Updated product: ${JSON.stringify(formatProduct(result), null, 2)}`
+            text: `Successfully updated '${attribute_code}' for product with SKU '${sku}'. Updated product: ${JSON.stringify(await withCurrency(formatProduct(result)), null, 2)}`
           }
         ]
       };
@@ -995,8 +1051,11 @@ server.tool(
         }
       });
       
-      // Format the result with order information and product details
+      // Order amounts are in the order currency; the catalog prices under
+      // product_details are in the base currency of the catalog scope.
+      const catalogCurrency = await baseCurrency();
       const result = {
+        catalog_prices: catalogCurrency,
         customer: {
           id: customer.id,
           email: customer.email,
@@ -1009,6 +1068,7 @@ server.tool(
           created_at: order.created_at,
           status: order.status,
           total: order.grand_total,
+          currency: order.order_currency_code || null,
           items: order.items.map(item => {
             const productDetail = productMap[item.sku] || {};
             return {
@@ -1045,7 +1105,7 @@ server.tool(
 );
 
 const merchantContext = require('./merchant/common').createContext(server, {
-  callMagentoApi, fetchAllPages, parseDateExpression, buildDateRangeFilter, normalizeCountry
+  callMagentoApi, fetchAllPages, parseDateExpression, buildDateRangeFilter, normalizeCountry, baseCurrency
 });
 const refundService = require('./merchant/refunds').createRefundService(merchantContext);
 require('./sales-tools').registerSalesTools(server, {

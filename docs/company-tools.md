@@ -62,6 +62,8 @@ This tool replaces **all** company price tiers of one SKU. Tiers that are left o
 
 Magento applies the tier with the highest `quantity` that the ordered quantity reaches. Company prices are separate from the standard Magento tier prices that `get_product_tier_prices` reads.
 
+Prices are values in the base currency of the store scope. The response reports that ISO code in `currency`. On an instance with several base currencies, `currency` is `null` and `currency_note` says so.
+
 ```json
 {"name":"set_company_prices","arguments":{"sku":"SKU-A","prices":[{"company_id":1,"quantity":1,"price":10},{"company_id":1,"quantity":10,"price":8}],"confirm":true}}
 ```

@@ -43,8 +43,10 @@ test('merchant tools through the actual MCP server', async t => {
         { id: 905, is_active: 1, items_count: 1, store_id: 1, updated_at: '2026-08-15 10:00:00', items: [{ sku: 'B', qty: 1 }] }
       ],
       cartTotals: { 901: { grand_total: 151, quote_currency_code: 'EUR', subtotal: 120 }, 903: { grand_total: 60, quote_currency_code: 'EUR' }, 905: { grand_total: 50, quote_currency_code: 'USD' } },
+      storeConfigs: [{ id: 1, website_id: 1, base_currency_code: 'EUR' }, { id: 2, website_id: 1, base_currency_code: 'EUR' },
+        { id: 3, website_id: 2, base_currency_code: 'USD' }],
       products: [
-        { id: 100, sku: 'A', name: 'Product A', type_id: 'simple', status: 1 },
+        { id: 100, sku: 'A', name: 'Product A', price: 12.5, type_id: 'simple', status: 1 },
         { id: 101, sku: 'B', name: 'Product B', type_id: 'simple', status: 1 },
         { id: 102, sku: 'C', name: 'Configurable', type_id: 'configurable', status: 1 },
         { id: 103, sku: 'D', name: 'No sales', type_id: 'simple', status: 1 }
@@ -115,6 +117,7 @@ test('merchant tools through the actual MCP server', async t => {
     match = endpoint.match(/^\/carts\/(\d+)\/totals$/);
     if (match) return send(data.cartTotals[match[1]]);
     if (endpoint === '/store/storeViews') return send([{ id: 1, website_id: 1 }, { id: 2, website_id: 1 }, { id: 3, website_id: 2 }]);
+    if (endpoint === '/store/storeConfigs') return send(data.storeConfigs);
     match = endpoint.match(/^\/inventory\/(get-product-salable-quantity|is-product-salable)\/(.+)\/1$/);
     if (match) {
       const quantity = data.availability[decodeURIComponent(match[2])];
@@ -122,6 +125,11 @@ test('merchant tools through the actual MCP server', async t => {
     }
     if (endpoint.startsWith('/stockItems/')) return send({ qty: 12, is_in_stock: true });
     if (endpoint === '/products/tier-prices-information' && req.method === 'POST') return send(data.tiers.filter(row => body.skus.includes(row.sku)));
+    match = endpoint.match(/^\/products\/([^/]+)$/);
+    if (match && req.method === 'GET') {
+      const product = data.products.find(row => row.sku === decodeURIComponent(match[1]));
+      return product ? send(product) : send({ message: 'Not found' }, 404);
+    }
     if (endpoint === '/mcp-merchant/search-terms') return send({ total_count: 1, items: [{ id: 1, query: 'purple panels', popularity: 25, num_results: 0 }] });
     if (endpoint === '/mcp-merchant/reviews') return send({ total_count: 1, items: [{ id: 1, sku: url.searchParams.get('sku'), status: 'pending', ratings: [{ value: 2 }] }] });
     if (endpoint === '/mcp-merchant/prices') return send({ total_count: 1, items: data.priceResults ?? [{ sku: url.searchParams.get('skus[0]'), unit_price: 8, currency: 'EUR' }] });
@@ -297,6 +305,22 @@ test('merchant tools through the actual MCP server', async t => {
     assert.equal(result.comparison.without_coupon.revenue, 60);
     assert.equal((await call('get_sales_rules', { website_id: 1, customer_group_id: 2 })).result.rules[0].rule_id, 10);
     assert.equal((await call('get_coupons')).result.total_count, 0);
+  });
+
+  await scenario('every price names its currency and no currency is invented for a mixed scope', async () => {
+    const scoped = (await call('get_product_tier_prices', { skus: ['A'], website_id: 2 })).result;
+    assert.equal(scoped.currency, 'USD');
+    assert.equal(scoped.currency_note, undefined);
+    const mixed = (await call('get_product_tier_prices', { skus: ['A'] })).result;
+    assert.equal(mixed.currency, null);
+    assert.match(mixed.currency_note, /several base currencies \(EUR, USD\)/);
+    const product = await call('get_product_by_sku', { sku: 'A' });
+    assert.equal(product.price, 12.5);
+    assert.equal(product.currency, null);
+    assert.match(product.currency_note, /several base currencies/);
+    const found = await call('search_products', { query: 'Product A' });
+    assert.equal(found.currency, null);
+    assert.equal(found.items[0].price, 12.5);
   });
 
   await scenario('prices use explicit website/group/quantity context and tier lookup is read-only', async () => {

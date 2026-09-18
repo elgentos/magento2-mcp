@@ -42,12 +42,12 @@ function registerMarketingContentTools(ctx) {
       } } };
   });
 
-  ctx.register('get_product_tier_prices', 'Read configured tier price rules for multiple SKUs, including customer group, website, minimum quantity and fixed/percentage price type. These are configured rules, not a tax/shipping-inclusive checkout quote.', {
+  ctx.register('get_product_tier_prices', 'Read configured tier price rules for multiple SKUs, including customer group, website, minimum quantity and fixed/percentage price type. These are configured rules, not a tax/shipping-inclusive checkout quote. Amounts are in the base currency reported as currency.', {
     skus, website_id: z.number().int().nonnegative().optional(), customer_group: z.string().optional()
   }, async args => {
     const data = await ctx.api('/products/tier-prices-information', 'POST', { skus: [...new Set(args.skus)] });
     if (!Array.isArray(data)) throw new Error('Invalid tier price response');
-    return { query: args, result: { tier_prices: data.filter(row =>
+    return { query: args, result: { ...await ctx.baseCurrency({ website_id: args.website_id }), tier_prices: data.filter(row =>
       (args.website_id === undefined || Number(row.website_id) === 0 || Number(row.website_id) === args.website_id) &&
       (args.customer_group === undefined || row.customer_group === args.customer_group || row.customer_group === 'ALL GROUPS')) } };
   });

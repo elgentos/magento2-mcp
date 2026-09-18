@@ -12,6 +12,8 @@ Paginated tools accept `page_size` (default 100, maximum 500) and `current_page`
 
 `date_range` accepts relative dates and inclusive `YYYY-MM-DD to YYYY-MM-DD`. `last N months` means the previous complete calendar months; `last N days` means the previous complete days, excluding today. Run the MCP server with `TZ=UTC` to align calendar boundaries with Magento timestamps. No automatic store-timezone conversion is applied.
 
+Amounts are plain numbers. Each response that contains money names its ISO currency code in `currency`: the order currency for order data, and the base currency of the store or website scope for catalog prices. A `currency` of `null` is explained by `currency_note` and means the scope is mixed or unreadable, not US dollars.
+
 Where listed below, **order filters** mean `date_range` (required), `status`, `store_id`, `country` (billing OR shipping) and `currency`. Monetary summaries reject mixed currencies and never convert them. Existing sales/revenue tools include all order statuses by default. Customer analytics, coupon performance and inventory risk exclude canceled orders unless an explicit `status` is given.
 
 Reports are current snapshots of recorded Magento data. Reading a previous period does not reconstruct historical product assignments, stock levels, customer account changes or historical promotion/index configurations. Large cart, customer or inventory reports can require many API calls; allow an appropriate MCP request timeout and restrict the scope when useful.

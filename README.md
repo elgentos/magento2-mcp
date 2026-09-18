@@ -231,6 +231,7 @@ Retrieve more than the top ten products or inspect the underlying orders:
 
 - Sales reports use order creation dates and ordered amounts/quantities. By default, refunds and canceled quantities are not subtracted. Revenue tools can deduct credit memos with `subtract_refunds: true`; product/category sales remain ordered amounts. Use `status` to select the order population. Order detail tools expose invoiced, shipped, canceled and refunded quantities where available.
 - Order revenue/AOV uses `grand_total`, including shipping and discounts. `include_tax: false` subtracts `tax_amount`. Currency comes from `order_currency_code`; empty results have `currency: null`.
+- Every response that contains money reports the ISO currency code in `currency`. Order amounts use the order currency. Catalog prices use the base currency of the store or website scope, read from `/store/storeConfigs`. Show amounts with the reported code and do not substitute another currency. A `currency` of `null` comes with a `currency_note` that says why: the scope holds several base currencies, or the store configuration could not be read. The server sends the same rule to the client as MCP instructions.
 - Product/category revenue uses `row_total - discount_amount + discount_tax_compensation_amount`, plus `tax_amount` when requested. Shipping and order-level adjustments are not allocated to products. Quantities can be fractional. Free products are retained.
 - Configurable and fixed-price bundle parent rows are counted once. Dynamic-price bundles with value on their child rows use those child rows and the bundle parent's categories. Raw order details retain both parent and child rows with `parent_item_id` for inspection.
 - Category membership comes from the **current** catalog, not a historical snapshot. Products deleted from the catalog, without categories, or without an ancestor at the requested level appear as `Uncategorized` (`category_id: null`). Products are looked up in batches by product ID, so configurable category lookup does not depend on a variant SKU matching the parent SKU.
@@ -255,7 +256,7 @@ Once the MCP server is connected to Claude Desktop, you can ask questions like:
 - "Are there any related products to SKU-SKU-xxx?"
 - "What's the stock status of product SKU-xxx?"
 - "Show me all products sorted by price"
-- "Update the price of product SKU-xxx to $49.99"
+- "Update the price of product SKU-xxx to 49.99"
 - "Change the description of product ABC-123 to describe it as water-resistant"
 - "Set the status of product XYZ-456 to 'enabled'"
 

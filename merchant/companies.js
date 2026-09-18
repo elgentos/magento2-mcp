@@ -192,7 +192,7 @@ function registerCompanyTools(ctx) {
   }, async args => {
     await entity(`/products/${encodeURIComponent(args.sku)}`, `Product ${args.sku} not found`);
     await entity(`/company-pricing/${encodeURIComponent(args.sku)}`, `Product ${args.sku} not found`, 'POST', { sku: args.sku, companyPrices: args.prices });
-    return { result: { sku: args.sku, tier_count: args.prices.length, prices: args.prices, replaced_all_tiers: true },
+    return { result: { sku: args.sku, ...await ctx.baseCurrency(), tier_count: args.prices.length, prices: args.prices, replaced_all_tiers: true },
       calculation: 'Company prices are quantity tiers per company and product. Magento applies the tier with the highest quantity that the ordered quantity reaches.' };
   });
 }
