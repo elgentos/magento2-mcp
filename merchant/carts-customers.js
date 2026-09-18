@@ -14,7 +14,7 @@ function registerCartCustomerTools(ctx) {
       items: (cart.items || []).map(item => pick(item, ['item_id', 'sku', 'name', 'qty', 'price', 'product_type', 'product_option']))
     };
   }
-  ctx.register('get_cart', 'Get a shopping cart and its products by internal quote ID. Reads calculated totals for active carts; inactive carts have totals=null because Magento only provides totals for active carts.', { cart_id: id }, async ({ cart_id }) => {
+  ctx.register('get_cart', 'Get a shopping cart and its products by internal quote ID. Reads calculated totals for active carts; inactive carts have totals=null because Magento only provides totals for active carts.', { cart_id: id() }, async ({ cart_id }) => {
     return { result: await cartDetails(await ctx.api(`/carts/${cart_id}`)) };
   });
   ctx.register('get_abandoned_carts', 'Find active nonempty carts whose last update is at least inactive_hours ago. Paginated results include products, totals and guest/registered customer context. Active carts are not classified as abandoned until the inactivity threshold is met.', {
@@ -44,7 +44,7 @@ function registerCartCustomerTools(ctx) {
 
   ctx.register('get_customers', 'Search registered customer accounts by email, name, group, website or registration period. Includes addresses and custom attributes; guests are analyzed through order history.', {
     email: z.string().email().optional(), name: z.string().min(1).optional(), group_id: z.number().int().nonnegative().optional(),
-    website_id: id.optional(), date_range: optionalDate, ...paginationSchema
+    website_id: id().optional(), date_range: optionalDate, ...paginationSchema
   }, async args => {
     let customers = await ctx.all('/customers/search', ctx.criteria(args, 'created_at', [
       ['email', args.email], ['group_id', args.group_id], ['website_id', args.website_id]
@@ -53,7 +53,7 @@ function registerCartCustomerTools(ctx) {
     return { query: args, result: ctx.paged(customers, args, 'customers') };
   });
   ctx.register('get_customer', 'Get a registered customer profile and addresses by ID or exact email. Use website_id to disambiguate an email used on multiple websites.', {
-    customer_id: id.optional(), email: z.string().email().optional(), website_id: id.optional()
+    customer_id: id().optional(), email: z.string().email().optional(), website_id: id().optional()
   }, async args => {
     if ((args.customer_id !== undefined) === (args.email !== undefined)) throw new Error('Specify exactly one of customer_id or email');
     if (args.customer_id) return { result: await ctx.api(`/customers/${args.customer_id}`) };

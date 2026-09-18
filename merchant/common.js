@@ -1,7 +1,9 @@
 const { z } = require('zod');
 const shared = require('../sales-tools');
 
-const id = z.number().int().positive();
+// Factory, not a shared instance: two properties in one tool schema that reference the same zod
+// object make zod-to-json-schema emit a $ref, which mcpo cannot resolve. See test/schema.test.js.
+const id = () => z.number().int().positive();
 const skus = z.array(z.string().min(1)).min(1).max(100);
 const optionalDate = shared.commonSchema.date_range.optional();
 const nonCanceledStatus = shared.commonSchema.status.describe('Exact order status; omitted excludes canceled orders');

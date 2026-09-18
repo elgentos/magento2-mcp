@@ -117,8 +117,8 @@ function registerCompanyTools(ctx) {
   });
 
   ctx.register('get_company', 'Get one B2B company by company ID, or the company a customer belongs to. A customer without a company returns company=null instead of an error. Requires the Elgentos B2B Suite company module.', {
-    company_id: id.optional().describe('Company ID'),
-    customer_id: id.optional().describe('Magento customer ID; returns the company this customer belongs to')
+    company_id: id().optional().describe('Company ID'),
+    customer_id: id().optional().describe('Magento customer ID; returns the company this customer belongs to')
   }, async args => {
     if ((args.company_id !== undefined) === (args.customer_id !== undefined)) throw new Error('Specify exactly one of company_id or customer_id');
     if (args.company_id !== undefined) {
@@ -137,7 +137,7 @@ function registerCompanyTools(ctx) {
     });
 
   ctx.register('update_company', 'Update selected fields of a B2B company. Reads the company first and sends the merged record, so fields that are left out keep their current value. Requires the Elgentos B2B Suite company module and the companies_edit permission.', {
-    company_id: id, changes: changeSchema
+    company_id: id(), changes: changeSchema
   }, async args => {
     const changes = payload(args.changes);
     if (Object.keys(changes).length === 0) throw new Error('Specify at least one field in changes');
@@ -148,7 +148,7 @@ function registerCompanyTools(ctx) {
   });
 
   ctx.register('delete_company', 'Delete a B2B company permanently. This cannot be undone and it unassigns the customers that belong to the company. Reads the company first and returns the deleted record so it can be recreated. Requires the Elgentos B2B Suite company module and the companies_delete permission.', {
-    company_id: id,
+    company_id: id(),
     confirm: z.literal(true).describe('Must be true. Confirms that this company is deleted permanently.')
   }, async args => {
     const existing = await entity(`/company/${args.company_id}`, `Company ${args.company_id} not found`);
@@ -158,7 +158,7 @@ function registerCompanyTools(ctx) {
   });
 
   ctx.register('get_company_customer', 'Get the company assignment of a Magento customer, including the role within the company. A customer without an assignment returns assignment=null instead of an error. Requires the Elgentos B2B Suite company module.', {
-    customer_id: id
+    customer_id: id()
   }, async args => {
     const assignment = await optionalEntity(`/company-customer/customer/${args.customer_id}`, 'This customer is not assigned to a company.');
     return { result: assignment.missing
@@ -167,9 +167,9 @@ function registerCompanyTools(ctx) {
   });
 
   ctx.register('assign_customer_to_company', 'Assign a Magento customer to a B2B company, with an optional role. Verifies the company first and reports any assignment the customer already has, because one customer belongs to one company at a time. Requires the Elgentos B2B Suite company module and the companies_edit permission.', {
-    company_id: id.describe('Company to assign the customer to'),
-    customer_id: id.describe('Magento customer ID'),
-    role_id: id.optional().describe('Role within the company, for example the admin role')
+    company_id: id().describe('Company to assign the customer to'),
+    customer_id: id().describe('Magento customer ID'),
+    role_id: id().optional().describe('Role within the company, for example the admin role')
   }, async args => {
     const company = await entity(`/company/${args.company_id}`, `Company ${args.company_id} not found`);
     const previous = await optionalEntity(`/company-customer/customer/${args.customer_id}`, 'This customer had no company assignment.');
@@ -184,7 +184,7 @@ function registerCompanyTools(ctx) {
   ctx.register('set_company_prices', 'Replace all company specific price tiers of one product. The list you send becomes the complete set of tiers for that SKU: tiers that are left out are removed, and an empty list removes every company price for the SKU. The B2B API has no read route for current company prices, so you cannot read the tiers back before replacing them. Requires the Elgentos B2B Suite company module and the Magento_Catalog::products permission.', {
     sku: z.string().min(1).describe('Product SKU'),
     prices: z.array(z.object({
-      company_id: id.describe('Company this price applies to'),
+      company_id: id().describe('Company this price applies to'),
       quantity: z.number().positive().describe('Minimum quantity for this tier'),
       price: z.number().nonnegative().describe('Price for this tier in the store currency')
     })).describe('The complete list of tiers for this SKU; an empty list removes all company prices'),

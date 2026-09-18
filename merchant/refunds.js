@@ -44,7 +44,7 @@ function createRefundService(ctx) {
 
 function registerRefundTools(ctx, service) {
   ctx.register('get_credit_memos', 'List credit memos with refund items. Filter by issue date, order or state; state 2 means refunded, 1 open, 3 canceled.', {
-    date_range: optionalDate, order_id: id.optional(), state: z.number().int().min(1).max(3).optional(), ...paginationSchema
+    date_range: optionalDate, order_id: id().optional(), state: z.number().int().min(1).max(3).optional(), ...paginationSchema
   }, async args => {
     const memos = await ctx.all('/creditmemos', ctx.criteria(args, 'created_at', [['order_id', args.order_id], ['state', args.state]]));
     return { query: args, result: ctx.paged(memos, args, 'credit_memos') };

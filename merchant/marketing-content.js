@@ -2,7 +2,7 @@ const { z, id, skus, commonSchema, nonCanceledStatus, paginationSchema, optional
 
 function registerMarketingContentTools(ctx) {
   ctx.register('get_sales_rules', 'Get cart price rules and their conditions, actions, schedules, customer groups and website scope. Read a rule by ID or search all rules.', {
-    rule_id: id.optional(), name: z.string().optional(), is_active: z.boolean().optional(), website_id: id.optional(),
+    rule_id: id().optional(), name: z.string().optional(), is_active: z.boolean().optional(), website_id: id().optional(),
     customer_group_id: z.number().int().nonnegative().optional(), ...paginationSchema
   }, async args => {
     let rules = args.rule_id ? [await ctx.api(`/salesRules/${args.rule_id}`)] : await ctx.all('/salesRules/search', ctx.criteria({}, 'created_at', [
@@ -13,7 +13,7 @@ function registerMarketingContentTools(ctx) {
     return { query: args, result: ctx.paged(rules, args, 'rules') };
   });
   ctx.register('get_coupons', 'List coupon codes with rule, usage counts, limits and expiry. Read-only; deleted historical codes can still appear in order-based performance reports.', {
-    rule_id: id.optional(), code: z.string().min(1).optional(), date_range: optionalDate, ...paginationSchema
+    rule_id: id().optional(), code: z.string().min(1).optional(), date_range: optionalDate, ...paginationSchema
   }, async args => ({ query: args, result: ctx.paged(await ctx.all('/coupons/search', ctx.criteria(args, 'created_at', [
     ['rule_id', args.rule_id], ['code', args.code]
   ], 'coupon_id')), args, 'coupons') }));
@@ -52,7 +52,7 @@ function registerMarketingContentTools(ctx) {
       (args.customer_group === undefined || row.customer_group === args.customer_group || row.customer_group === 'ALL GROUPS')) } };
   });
   ctx.register('get_product_prices', 'Get current indexed catalog prices for SKUs in a store and customer group, including applicable tier pricing for a quantity. Requires the bundled merchant module; prices are in website base currency with catalog tax semantics, not an address-specific checkout quote.', {
-    skus, store_id: id, customer_group_id: z.number().int().nonnegative().default(0), quantity: z.number().positive().default(1)
+    skus, store_id: id(), customer_group_id: z.number().int().nonnegative().default(0), quantity: z.number().positive().default(1)
   }, async args => {
     const data = await ctx.extension('prices', {
       skus: args.skus, storeId: args.store_id, customerGroupId: args.customer_group_id, quantity: args.quantity
@@ -71,7 +71,7 @@ function registerMarketingContentTools(ctx) {
   ctx.register('search_cms_pages', 'Search CMS pages by title, URL identifier or active status. Returns content and SEO metadata for content audits.', cmsSchema,
     async args => ({ query: args, result: ctx.paged(await cmsList('/cmsPage/search', args), args, 'pages') }));
   ctx.register('get_cms_page', 'Get full CMS page content and metadata by numeric ID or exact URL identifier.', {
-    page_id: id.optional(), identifier: z.string().min(1).optional()
+    page_id: id().optional(), identifier: z.string().min(1).optional()
   }, async args => {
     if ((args.page_id !== undefined) === (args.identifier !== undefined)) throw new Error('Specify exactly one of page_id or identifier');
     if (args.page_id) return { result: await ctx.api(`/cmsPage/${args.page_id}`) };
@@ -87,7 +87,7 @@ function registerMarketingContentTools(ctx) {
     is_active: z.boolean().optional()
   }).strict().refine(value => Object.keys(value).length > 0, 'Provide at least one field to change');
   ctx.register('update_cms_page', 'Update only the specified CMS content/SEO fields on an existing page. Reads the existing page first and preserves its identifier, layout and other fields. Optional expected_update_time prevents overwriting a known newer revision.', {
-    page_id: id, changes: cmsChanges, expected_update_time: z.string().optional()
+    page_id: id(), changes: cmsChanges, expected_update_time: z.string().optional()
   }, async args => {
     const existing = await ctx.api(`/cmsPage/${args.page_id}`);
     if (args.expected_update_time !== undefined && existing.update_time !== args.expected_update_time) throw new Error('CMS page changed since it was read; reload it before updating');
