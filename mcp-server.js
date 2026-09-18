@@ -1056,6 +1056,7 @@ require('./merchant/carts-customers').registerCartCustomerTools(merchantContext)
 require('./merchant/orders').registerOrderTools(merchantContext);
 require('./merchant/inventory').registerInventoryTools(merchantContext);
 require('./merchant/marketing-content').registerMarketingContentTools(merchantContext);
+require('./merchant/companies').registerCompanyTools(merchantContext);
 
 // Start the MCP server with stdio transport
 async function main() {

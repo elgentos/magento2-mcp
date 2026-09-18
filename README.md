@@ -4,6 +4,8 @@ This is a Model Context Protocol (MCP) server that connects to Magento 2, allowi
 
 The [merchant tools guide](docs/merchant-tools.md) documents the 24 tools added from priorities 1 and 2 of the [Magento MCP comparison](docs/mcp-merchant-comparison.nl.md), their filters and calculation definitions. Contextual prices, search terms and reviews require the bundled [Magento module](magento-module/README.md).
 
+The [company tools guide](docs/company-tools.md) documents the nine tools for the company entities of the Elgentos B2B suite. These tools need the `Elgentos_CompanyAccounts` module, which not every Magento instance has; the tools detect this and report it.
+
 ## Features
 
 ### Product Features
@@ -28,6 +30,14 @@ The [merchant tools guide](docs/merchant-tools.md) documents the 24 tools added 
 - Read contextual customer-group prices and configured quantity tiers
 - Search CMS pages/blocks and update page content and metadata
 - Analyze storefront search terms without results and read product reviews
+
+### B2B Company Features
+- Search companies by name, status, KVK/VAT number, email, city or country
+- Read one company by ID, or the company and role of a Magento customer
+- Create companies, update selected fields and delete a company after explicit confirmation
+- Assign customers to a company, with a warning when a customer moves between companies
+- Replace the company price tiers of a product
+- Detect whether the Elgentos B2B suite is installed and readable with the API token
 
 ### Order and Revenue Features
 - Get order count for specific date ranges
@@ -125,6 +135,18 @@ The server exposes the following tools:
 - `get_search_terms`, `get_product_reviews`: Storefront search terms and reviews
 
 See [parameters, examples and required permissions](docs/merchant-tools.md) for all of these tools.
+
+### B2B Company Tools
+
+These tools need the `Elgentos_CompanyAccounts` module of the Elgentos B2B suite. On an instance without the module they report an installation message instead of an HTTP error.
+
+- `get_company_support`: Check whether the company API is present and readable with the API token
+- `get_companies`, `get_company`, `get_company_customer`: Search companies, read one company and read the company and role of a customer
+- `create_company`, `update_company`, `delete_company`: Maintain companies; update merges into the current record and delete needs `confirm: true`
+- `assign_customer_to_company`: Assign a customer to a company, with an optional role
+- `set_company_prices`: Replace all company price tiers of one SKU; needs `confirm: true`
+
+See [parameters, examples and required permissions](docs/company-tools.md) for all of these tools.
 
 ### Order and Revenue Tools
 - `get_order_count`: Get the number of orders for a given date range
