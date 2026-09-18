@@ -1,5 +1,7 @@
 # Magento 2 MCP Server
 
+https://github.com/user-attachments/assets/de1dae3f-fae5-44ad-8fdc-00e901230d8a
+
 This is a Model Context Protocol (MCP) server that connects to Magento 2, allowing Claude and other MCP clients to analyze sales, customers, inventory and marketing, and manage product attributes and CMS content.
 
 The [merchant tools guide](docs/merchant-tools.md) documents the 24 tools added from priorities 1 and 2 of the [Magento MCP comparison](docs/mcp-merchant-comparison.nl.md), their filters and calculation definitions. Contextual prices, search terms and reviews require the bundled [Magento module](magento-module/README.md).
